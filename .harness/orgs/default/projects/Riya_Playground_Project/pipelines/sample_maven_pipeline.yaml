@@ -32,11 +32,11 @@ pipeline:
             steps:
               - step:
                   type: GitClone
-                  name: GitClone_1
-                  identifier: GitClone_1
+                  name: GitClone
+                  identifier: gitclone
                   spec:
-                    connectorRef: account.avyka_github_connector
-                    repoName: partner-demo-kit
+                    connectorRef: riya_avyka_github_connector
+                    repoName: sample-maven
                     build:
                       type: branch
                       spec:
@@ -247,8 +247,8 @@ pipeline:
                                         stageStatus: Success
               - step:
                   type: S3Upload
-                  name: S3Upload_1
-                  identifier: S3Upload_1
+                  name: S3Upload
+                  identifier: s3_upload
                   spec:
                     connectorRef: account.avyka_aws_connector
                     region: us-west-2
@@ -286,8 +286,8 @@ pipeline:
                   name: GitClone_1
                   identifier: GitClone_1
                   spec:
-                    connectorRef: account.avyka_github_connector
-                    repoName: partner-demo-kit
+                    connectorRef: riya_avyka_github_connector
+                    repoName: sample-maven
                     build:
                       type: branch
                       spec:
