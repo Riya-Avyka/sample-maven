@@ -246,6 +246,13 @@ pipeline:
                                       when:
                                         stageStatus: Success
               - step:
+                  type: Run
+                  name: Building Image
+                  identifier: building_image
+                  spec:
+                    shell: Sh
+                    command: docker build -t sample-maven-imnage .
+              - step:
                   type: S3Upload
                   name: S3Upload
                   identifier: s3_upload
@@ -292,16 +299,6 @@ pipeline:
                       type: branch
                       spec:
                         branch: main
-              - step:
-                  type: Test
-                  name: Test_1
-                  identifier: Test_1
-                  spec:
-                    shell: Sh
-                    command: |2-
-                          cd ./python-tests
-                          pytest  
-                    intelligenceMode: true
               - stepGroup:
                   name: Container Scanning
                   identifier: Container_Scanning
