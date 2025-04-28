@@ -1,0 +1,351 @@
+pipeline:
+  name: Sample Maven Pipeline
+  identifier: sample_maven_pipeline
+  projectIdentifier: Riya_Playground_Project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: riya_avyka_github_connector
+        repoName: sample-maven
+        build: <+input>
+  stages:
+    - stage:
+        name: Lint and Scan Stage
+        identifier: lint_scan_stage
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+            paths: []
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: GitClone
+                  name: GitClone_1
+                  identifier: GitClone_1
+                  spec:
+                    connectorRef: account.avyka_github_connector
+                    repoName: partner-demo-kit
+                    build:
+                      type: branch
+                      spec:
+                        branch: main
+              - parallel:
+                  - step:
+                      type: Run
+                      name: Install Dependencies
+                      identifier: Install_Dependencies
+                      spec:
+                        shell: Sh
+                        command: mvn install
+                  - step:
+                      type: Run
+                      name: Generate Upload Path
+                      identifier: generate_upload_path
+                      spec:
+                        shell: Sh
+                        command: |-
+                          formatted_date=$(date +"%Y/%m/%d")
+                          formatted_time=$(date +"%H-%M-%S")
+                          formatted_output="$PROJECT_NAME/$formatted_date/$formatted_time/"
+                          echo "$formatted_output"
+                        envVariables:
+                          PROJECT_NAME: <+input>
+                        outputVariables:
+                          - name: path_for_reports
+                            type: String
+                            value: formatted_output
+              - stepGroup:
+                  name: Security Scans
+                  identifier: security_scans
+                  steps:
+                    - parallel:
+                        - stepGroup:
+                            name: SAST Scans
+                            identifier: sast_scans
+                            steps:
+                              - step:
+                                  type: Semgrep
+                                  name: Semgrep Scanner
+                                  identifier: semgrep_scanner
+                                  spec:
+                                    mode: orchestration
+                                    config: default
+                                    target:
+                                      type: repository
+                                      detection: auto
+                                    advanced:
+                                      log:
+                                        level: info
+                              - step:
+                                  type: Run
+                                  name: Semgrep Reports
+                                  identifier: semgrep_reports
+                                  spec:
+                                    shell: Sh
+                                    command: |-
+                                      cd /addon/results
+                                      reports_dir="/addon/reports"
+                                      if [ ! -d "$reports_dir" ]; then
+                                      mkdir -p "$reports_dir"
+                                      fi
+
+                                      current_date=$(date +%Y-%m-%d)
+
+                                      for file in *_refined; do
+                                          productName=$(jq -r '.[0].details.productName' -- "$file")
+                                          if [ -n "$productName" ] && [ "$productName" != "null" ] && [ "$productName" = "semgrep" ]; then
+                                              new_name="semgrep-${current_date}.json"
+                                              mv -- "$file" "$new_name"
+                                              cp -- "$new_name" "$reports_dir/"
+                                              break  
+                                          else
+                                              echo "File rename failed."
+                                          fi
+                                      done
+                            when:
+                              stageStatus: Success
+                        - stepGroup:
+                            name: Secret Scans
+                            identifier: secret_scans
+                            steps:
+                              - step:
+                                  type: Gitleaks
+                                  name: Gitleaks Scanner
+                                  identifier: gitleaks_scanner
+                                  spec:
+                                    mode: orchestration
+                                    config: default
+                                    target:
+                                      type: repository
+                                      detection: auto
+                                    advanced:
+                                      log:
+                                        level: info
+                              - step:
+                                  type: Run
+                                  name: Gitleaks Reports
+                                  identifier: gitleaks_reports
+                                  spec:
+                                    shell: Sh
+                                    command: |-
+                                      cd /addon/results
+                                      reports_dir="/addon/reports"
+                                      if [ ! -d "$reports_dir" ]; then
+                                        mkdir -p "$reports_dir"
+                                      fi
+
+                                      current_date=$(date +%Y-%m-%d)
+
+                                      for file in *; do
+                                          if jq -e '.runs[0].tool.driver.name == "gitleaks"' -- "$file" > /dev/null 2>&1; then
+                                              # Construct the new name
+                                              new_name="gitleaks-$current_date.json"
+                                              mv -- "$file" "$new_name"
+                                              cp -- "$new_name" "$reports_dir/"
+                                          fi
+                                      done
+                            when:
+                              stageStatus: Success
+                        - stepGroup:
+                            name: SCA Detection
+                            identifier: sca_detection
+                            steps:
+                              - parallel:
+                                  - step:
+                                      type: Owasp
+                                      name: Owasp Scanner
+                                      identifier: owasp_scanner
+                                      spec:
+                                        mode: orchestration
+                                        config: default
+                                        target:
+                                          type: repository
+                                          detection: auto
+                                        advanced:
+                                          log:
+                                            level: info
+                                  - step:
+                                      type: OsvScanner
+                                      name: Osv Scanner
+                                      identifier: osv_scanner
+                                      spec:
+                                        mode: orchestration
+                                        config: default
+                                        target:
+                                          type: repository
+                                          detection: auto
+                                        advanced:
+                                          log:
+                                            level: info
+                              - parallel:
+                                  - step:
+                                      type: Run
+                                      name: Owasp Reports
+                                      identifier: owasp_reports
+                                      spec:
+                                        shell: Sh
+                                        command: |-
+                                          cd /addon/results
+                                          reports_dir="/addon/reports"
+                                          if [ ! -d "$reports_dir" ]; then
+                                          mkdir -p "$reports_dir"
+                                          fi
+
+                                          current_date=$(date +%Y-%m-%d)
+
+                                          for file in *_refined; do
+                                              ls
+                                              echo $file
+                                              cat "$file"
+                                              cat $file
+                                              productName=$(jq -r '.[0].details.productName' -- "$file")
+                                              echo "$productName"
+                                              if [ -n "$productName" ] && [ "$productName" != "null" ] && [ "$productName" = "owasp" ] ; then
+                                                  new_name="${productName}-${current_date}.json"
+                                                  mv -- "$file" "$new_name"
+                                                  cp -- "$new_name" "$reports_dir/"
+                                                  break  
+                                              else
+                                                  echo "File rename failed."
+                                              fi
+                                          done
+                                  - step:
+                                      type: Run
+                                      name: OSV Reports
+                                      identifier: OSV_Reports
+                                      spec:
+                                        shell: Sh
+                                        command: |-
+                                          cd /addon/results
+                                          reports_dir="/addon/reports"
+                                          if [ ! -d "$reports_dir" ]; then
+                                            mkdir -p "$reports_dir"
+                                          fi
+                                          current_date=$(date +%Y-%m-%d)
+
+                                          for file in *; do
+                                              if jq -e '.runs[0].tool.driver.name == "osv-scanner"' -- "$file" > /dev/null 2>&1; then
+                                                  new_name="osv-scanner-$current_date.json"
+                                                  mv -- "$file" "$new_name"
+                                                  cp -- "$new_name" "$reports_dir/"
+                                                    
+                                              fi
+                                          done
+                                      when:
+                                        stageStatus: Success
+              - step:
+                  type: S3Upload
+                  name: S3Upload_1
+                  identifier: S3Upload_1
+                  spec:
+                    connectorRef: account.avyka_aws_connector
+                    region: us-west-2
+                    bucket: sample-maven-project-avyka
+                    sourcePath: /addon/reports/
+                    target: "\_<+execution.steps.generate_upload_path.output.outputVariables.path_for_reports>"
+          buildIntelligence:
+            enabled: true
+          sharedPaths:
+            - /harness/node_modules
+        when:
+          pipelineStatus: Success
+          condition: "false"
+    - stage:
+        name: Build Scan and Push Stage
+        identifier: build_scan_and_push_stage
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+            paths: []
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: GitClone
+                  name: GitClone_1
+                  identifier: GitClone_1
+                  spec:
+                    connectorRef: account.avyka_github_connector
+                    repoName: partner-demo-kit
+                    build:
+                      type: branch
+                      spec:
+                        branch: main
+              - step:
+                  type: Test
+                  name: Test_1
+                  identifier: Test_1
+                  spec:
+                    shell: Sh
+                    command: |2-
+                          cd ./python-tests
+                          pytest  
+                    intelligenceMode: true
+              - stepGroup:
+                  name: Container Scanning
+                  identifier: Container_Scanning
+                  steps:
+                    - parallel:
+                        - step:
+                            type: AquaTrivy
+                            name: AquaTrivy Scanning
+                            identifier: AquaTrivy_Scanning
+                            spec:
+                              mode: orchestration
+                              config: default
+                              target:
+                                type: container
+                                detection: auto
+                              advanced:
+                                log:
+                                  level: info
+                              privileged: true
+                              image:
+                                type: local_image
+                                tag: latest
+                                name: node-sample-project
+                              sbom:
+                                format: spdx-json
+                          contextType: Pipeline
+                        - step:
+                            type: Grype
+                            name: Grype Scanning
+                            identifier: Grype_Scanning
+                            spec:
+                              mode: orchestration
+                              config: default
+                              target:
+                                type: container
+                                detection: auto
+                              advanced:
+                                log:
+                                  level: info
+                              privileged: true
+                              image:
+                                type: local_image
+                                tag: latest
+                                name: node-sample-project
+                contextType: Pipeline
+          buildIntelligence:
+            enabled: false
